@@ -4,20 +4,25 @@ from .common import PositionalEncoding
 
 
 class StyleEncoder(nn.Module):
-    def __init__(self, args):
+    def __init__(
+        self,
+        no_head_pose = True,
+        feature_dim = 128,
+        n_heads = 4,
+        n_layers = 4,
+        mlp_ratio = 4,
+    ):
         super().__init__()
 
         # Model parameters
         self.motion_coef_dim = 50
-        if args.rot_repr == 'aa':
-            self.motion_coef_dim += 1 if args.no_head_pose else 4
-        else:
-            raise ValueError(f'Unknown rotation representation {args.rot_repr}!')
-
-        self.feature_dim = args.feature_dim
-        self.n_heads = args.n_heads
-        self.n_layers = args.n_layers
-        self.mlp_ratio = args.mlp_ratio
+        
+        self.motion_coef_dim += 1 if no_head_pose else 4
+        
+        self.feature_dim = feature_dim
+        self.n_heads = n_heads
+        self.n_layers = n_layers
+        self.mlp_ratio = mlp_ratio
 
         # Transformer for feature extraction
         encoder_layer = nn.TransformerEncoderLayer(

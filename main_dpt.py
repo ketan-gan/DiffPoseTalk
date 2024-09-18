@@ -43,13 +43,18 @@ def train(args, model: DiffTalkingHead, style_enc: Optional[StyleEncoder], train
     optimizer.zero_grad()
     for it in pbar:
         # Load data
-        audio_pair, coef_pair, audio_stats = next(data_loader)
+        audio_pair, coef_pair, style_coef, audio_stats = next(data_loader)
         audio_pair = [audio.to(device) for audio in audio_pair]
         coef_pair = [{x: coef_pair[i][x].to(device) for x in coef_pair[i]} for i in range(2)]
+        
+        style_coef = {x: style_coef[x].to(device) for x in style_coef}
+        style_motion_coef = utils.get_motion_coef(style_coef, args.rot_repr, predict_head_pose)
+
         motion_coef_pair = [
             utils.get_motion_coef(coef_pair[i], args.rot_repr, predict_head_pose) for i in range(2)
         ]  # (N, L, 50+x)
 
+        
         # Use the shape coefficients from the first frame of the first clip as the condition
         if coef_pair[0]['shape'].ndim == 2:  # (N, 100)
             shape_coef = coef_pair[0]['shape'].clone().to(device)
@@ -57,9 +62,9 @@ def train(args, model: DiffTalkingHead, style_enc: Optional[StyleEncoder], train
             shape_coef = coef_pair[0]['shape'][:, 0].clone().to(device)
 
         # Extract style features
-        if style_enc is not None:
-            with torch.no_grad():
-                style_pair = [style_enc(motion_coef_pair[i]) for i in range(2)]
+        # if style_enc is not None:
+        #     with torch.no_grad():
+        #         style_pair = [style_enc(motion_coef_pair[i]) for i in range(2)]
 
         if args.use_context_audio_feat:
             # Extract audio features
@@ -78,7 +83,7 @@ def train(args, model: DiffTalkingHead, style_enc: Optional[StyleEncoder], train
         for i in range(2):
             audio = audio_pair[i]  # (N, L_a)
             motion_coef = motion_coef_pair[i]  # (N, L, 50+x)
-            style = style_pair[1 - i] if style_enc is not None else None
+            # style = style_pair[1 - i] if style_enc is not None else None
             batch_size = audio.shape[0]
 
             # truncate input audio and motion according to trunc_prob
@@ -108,7 +113,7 @@ def train(args, model: DiffTalkingHead, style_enc: Optional[StyleEncoder], train
             # Inference
             if i == 0:
                 noise, target, prev_motion_coef, prev_audio_feat, time_steps = model(
-                    motion_coef_in, audio_in, shape_coef, style, indicator=indicator, return_timesteps=True)
+                    motion_coef_in, audio_in, shape_coef, motions_for_style=style_motion_coef, indicator=indicator, return_timesteps=True)
                 if end_idx is not None:  # was truncated, needs to use the complete feature
                     prev_motion_coef = motion_coef[:, -args.n_prev_motions:]
                     if args.use_context_audio_feat:
@@ -120,8 +125,8 @@ def train(args, model: DiffTalkingHead, style_enc: Optional[StyleEncoder], train
                     prev_motion_coef = prev_motion_coef[:, -args.n_prev_motions:]
                     prev_audio_feat = prev_audio_feat[:, -args.n_prev_motions:]
             else:
-                noise, target, _, _, time_steps = model(motion_coef_in, audio_in, shape_coef, style,
-                                            prev_motion_coef, prev_audio_feat, indicator=indicator, return_timesteps=True)
+                noise, target, _, _, time_steps = model(motion_coef_in, audio_in, shape_coef, prev_motion_feat=prev_motion_coef, 
+                    prev_audio_feat=prev_audio_feat, motions_for_style=style_motion_coef, indicator=indicator, return_timesteps=True)
 
             loss_n, loss_v, loss_c, loss_s, loss_ha, loss_hc, loss_hs, loss_ht = utils.compute_loss(
                 args, i == 0, shape_coef, motion_coef_in, noise, target, prev_motion_coef, coef_stats, flame, end_idx, time_steps, band_wise_denoising_loss, bands)
@@ -252,12 +257,15 @@ def test(args, model: DiffTalkingHead, style_enc: Optional[StyleEncoder], test_l
 
     loss_log = defaultdict(list)
     for test_round in range(n_rounds):
-        for audio_pair, coef_pair, audio_stats in test_loader:
+        for audio_pair, coef_pair, style_coef, audio_stats in test_loader:
             audio_pair = [audio.to(device) for audio in audio_pair]
             coef_pair = [{x: coef_pair[i][x].to(device) for x in coef_pair[i]} for i in range(2)]
             motion_coef_pair = [
                 utils.get_motion_coef(coef_pair[i], args.rot_repr, predict_head_pose) for i in range(2)
             ]  # (N, L, 50+x)
+
+            style_coef = {x: style_coef[x].to(device) for x in style_coef}
+            style_motion_coef = utils.get_motion_coef(style_coef, args.rot_repr, predict_head_pose)
 
             # Use the shape coefficients from the first frame of the first clip as the condition
             if coef_pair[0]['shape'].ndim == 2:  # (N, 100)
@@ -266,9 +274,9 @@ def test(args, model: DiffTalkingHead, style_enc: Optional[StyleEncoder], test_l
                 shape_coef = coef_pair[0]['shape'][:, 0].clone().to(device)
 
             # Extract style features
-            if style_enc is not None:
-                with torch.no_grad():
-                    style_pair = [style_enc(motion_coef_pair[i]) for i in range(2)]
+            # if style_enc is not None:
+            #     with torch.no_grad():
+            #         style_pair = [style_enc(motion_coef_pair[i]) for i in range(2)]
 
             if args.use_context_audio_feat:
                 # Extract audio features
@@ -285,7 +293,7 @@ def test(args, model: DiffTalkingHead, style_enc: Optional[StyleEncoder], test_l
             for i in range(2):
                 audio = audio_pair[i]  # (N, L_a)
                 motion_coef = motion_coef_pair[i]  # (N, L, 50+x)
-                style = style_pair[1 - i] if style_enc is not None else None
+                # style = style_pair[1 - i] if style_enc is not None else None
                 batch_size = audio.shape[0]
 
                 # truncate input audio and motion according to trunc_prob
@@ -316,7 +324,7 @@ def test(args, model: DiffTalkingHead, style_enc: Optional[StyleEncoder], test_l
                 # Inference
                 if i == 0:
                     noise, target, prev_motion_coef, prev_audio_feat = model(
-                        motion_coef_in, audio_in, shape_coef, style, indicator=indicator)
+                        motion_coef_in, audio_in, shape_coef, motions_for_style=style_motion_coef, indicator=indicator)
                     if end_idx is not None:  # was truncated, needs to use the complete feature
                         prev_motion_coef = motion_coef[:, -args.n_prev_motions:]
                         if args.use_context_audio_feat:
@@ -328,8 +336,8 @@ def test(args, model: DiffTalkingHead, style_enc: Optional[StyleEncoder], test_l
                         prev_motion_coef = prev_motion_coef[:, -args.n_prev_motions:]
                         prev_audio_feat = prev_audio_feat[:, -args.n_prev_motions:]
                 else:
-                    noise, target, _, _ = model(motion_coef_in, audio, shape_coef, style,
-                                                prev_motion_coef, prev_audio_feat, indicator=indicator)
+                    noise, target, _, _ = model(motion_coef_in, audio, shape_coef, prev_motion_feat=prev_motion_coef, 
+                        prev_audio_feat=prev_audio_feat, motions_for_style=style_motion_coef, indicator=indicator)
 
                 loss_n, loss_v, loss_c, loss_s, loss_ha, loss_hc, loss_hs, loss_ht = utils.compute_loss(
                     args, i == 0, shape_coef, motion_coef_in, noise, target, prev_motion_coef, coef_stats, flame,
@@ -439,15 +447,15 @@ def main(args, option_text=None):
 
     if args.mode == 'train':
         # Style Encoder
-        if args.style_enc_ckpt:
-            # Build model
-            enc_model_data = torch.load(args.style_enc_ckpt, map_location=device)
-            enc_model_args = utils.NullableArgs(enc_model_data['args'])
-            style_enc = StyleEncoder(enc_model_args).to(device)
-            style_enc.encoder.load_state_dict(enc_model_data['encoder'], strict=False)
-            style_enc.eval()
-        else:
-            style_enc = None
+        # if args.style_enc_ckpt:
+        #     # Build model
+        #     enc_model_data = torch.load(args.style_enc_ckpt, map_location=device)
+        #     enc_model_args = utils.NullableArgs(enc_model_data['args'])
+        #     style_enc = StyleEncoder(enc_model_args).to(device)
+        #     style_enc.encoder.load_state_dict(enc_model_data['encoder'], strict=False)
+        #     style_enc.eval()
+        # else:
+        style_enc = None
 
         # Build model
         model = DiffTalkingHead(args, device=device)

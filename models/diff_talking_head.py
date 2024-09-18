@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from .style_encoder import StyleEncoder
 
 from .common import PositionalEncoding, enc_dec_mask, pad_audio
 
@@ -62,7 +63,8 @@ class DiffTalkingHead(nn.Module):
         # Model parameters
         self.target = args.target
         self.architecture = args.architecture
-        self.use_style = args.style_enc_ckpt is not None
+        self.use_style = True
+        self.style_encoder = StyleEncoder()
 
         self.motion_feat_dim = 50
         if args.rot_repr == 'aa':
@@ -73,8 +75,7 @@ class DiffTalkingHead(nn.Module):
         self.fps = args.fps
         self.n_motions = args.n_motions
         self.n_prev_motions = args.n_prev_motions
-        if self.use_style:
-            self.style_feat_dim = args.d_style
+        self.style_feat_dim = self.style_encoder.feature_dim
 
         # Audio encoder
         self.audio_model = args.audio_model
@@ -117,7 +118,6 @@ class DiffTalkingHead(nn.Module):
         guiding_conditions = args.guiding_conditions.split(',') if args.guiding_conditions else []
         self.guiding_conditions = [cond for cond in guiding_conditions if cond in ['style', 'audio']]
         
-        import pdb; pdb.set_trace()
         if 'style' in self.guiding_conditions:
             if not self.use_style:
                 raise ValueError('Cannot use style guiding without enabling it!')
@@ -132,14 +132,14 @@ class DiffTalkingHead(nn.Module):
     def device(self):
         return next(self.parameters()).device
 
-    def forward(self, motion_feat, audio_or_feat, shape_feat, style_feat=None,
+    def forward(self, motion_feat, audio_or_feat, shape_feat, motions_for_style=None,
                 prev_motion_feat=None, prev_audio_feat=None, time_step=None, indicator=None, return_timesteps=False):
         """
         Args:
             motion_feat: (N, L, d_coef) motion coefficients or features
             audio_or_feat: (N, L_audio) raw audio or audio feature
             shape_feat: (N, d_shape) or (N, 1, d_shape)
-            style_feat: (N, d_style)
+            motion_for_style: (N, seq_len, motion_coef_dim)
             prev_motion_feat: (N, n_prev_motions, d_motion) previous motion coefficients or feature
             prev_audio_feat: (N, n_prev_motions, d_audio) previous audio features
             time_step: (N,)
@@ -148,8 +148,10 @@ class DiffTalkingHead(nn.Module):
         Returns:
            motion_feat_noise: (N, L, d_motion)
         """
+        style_feat = None
         if self.use_style:
-            assert style_feat is not None, 'Missing style features!'
+            assert motions_for_style is not None, 'Missing style features!'
+            style_feat = self.style_encoder(motions_for_style)
 
         batch_size = motion_feat.shape[0]
 
@@ -250,7 +252,7 @@ class DiffTalkingHead(nn.Module):
         return audio_feat
 
     @torch.no_grad()
-    def sample(self, audio_or_feat, shape_feat, style_feat=None, prev_motion_feat=None, prev_audio_feat=None,
+    def sample(self, audio_or_feat, shape_feat, motions_for_style=None, prev_motion_feat=None, prev_audio_feat=None,
                motion_at_T=None, indicator=None, cfg_mode=None, cfg_cond=None, cfg_scale=1.15, flexibility=0,
                dynamic_threshold=None, ret_traj=False):
         # Check and convert inputs
@@ -273,11 +275,14 @@ class DiffTalkingHead(nn.Module):
             cfg_cond, cfg_scale = [], []
 
         if 'style' in cfg_cond:
-            assert self.use_style and style_feat is not None
+            assert self.use_style and motions_for_style is not None
 
+        style_feat = None
         if self.use_style:
-            if style_feat is None:  # use null style feature
+            if motions_for_style is None:  # use null style feature
                 style_feat = self.null_style_feat.expand(batch_size, -1, -1)
+            else:
+                style_feat = self.style_encoder(motions_for_style)
         else:
             assert style_feat is None, 'This model does not support style feature input!'
 
@@ -414,7 +419,7 @@ class DenoisingNetwork(nn.Module):
         super().__init__()
 
         # Model parameters
-        self.use_style = args.style_enc_ckpt is not None
+        self.use_style = True # args.style_enc_ckpt is not None
         self.motion_feat_dim = 50
         if args.rot_repr == 'aa':
             self.motion_feat_dim += 1 if args.no_head_pose else 4

@@ -58,8 +58,7 @@ class LmdbDataset(data.Dataset):
     def __len__(self):
         return len(self.entries)
 
-    def __getitem__(self, index):
-        # Read audio and coef
+    def get_coef_dict(self, index, total_coef_len):
         with self.lmdb_env.begin(write=False) as txn:
             meta_key = f'{self.entries[index]}/metadata'.encode()
             metadata = pickle.loads(txn.get(meta_key))
@@ -67,11 +66,11 @@ class LmdbDataset(data.Dataset):
 
         # Crop the audio and coef
         if self.crop_strategy == 'random':
-            start_frame = np.random.randint(0, seq_len - self.coef_total_len + 1)
+            start_frame = np.random.randint(0, seq_len - total_coef_len + 1)
         elif self.crop_strategy == 'begin':
             start_frame = 0
         elif self.crop_strategy == 'end':
-            start_frame = seq_len - self.coef_total_len
+            start_frame = seq_len - total_coef_len
         else:
             raise ValueError(f'Unknown crop strategy: {self.crop_strategy}')
 
@@ -79,12 +78,12 @@ class LmdbDataset(data.Dataset):
         coef_dict = {k: [] for k in coef_keys}
         audio = []
         start_clip = start_frame // self.clip_len
-        end_clip = (start_frame + self.coef_total_len - 1) // self.clip_len + 1
+        end_clip = (start_frame + total_coef_len - 1) // self.clip_len + 1
         with self.lmdb_env.begin(write=False) as txn:
             for clip_idx in range(start_clip, end_clip):
                 key = f'{self.entries[index]}/{clip_idx:03d}'.encode()
                 start_idx = max(start_frame - clip_idx * self.clip_len, 0)
-                end_idx = min(start_frame + self.coef_total_len - clip_idx * self.clip_len, self.clip_len)
+                end_idx = min(start_frame + total_coef_len - clip_idx * self.clip_len, self.clip_len)
 
                 entry = pickle.loads(txn.get(key))
                 for coef_key in coef_keys:
@@ -97,7 +96,18 @@ class LmdbDataset(data.Dataset):
                 audio.append(audio_clip[round(start_idx * self.audio_unit):round(end_idx * self.audio_unit)])
 
         coef_dict = {k: torch.tensor(np.concatenate(coef_dict[k], axis=0)) for k in coef_keys}
+
+        return coef_dict, audio
+
+    def __getitem__(self, index):
+        # Read audio and coef
+
+        coef_dict, audio = self.get_coef_dict(index, self.coef_total_len)
+        style_coef_dict, _ = self.get_coef_dict(index, self.clip_len)
+
         assert coef_dict['exp'].shape[0] == self.coef_total_len, f'Invalid coef length: {coef_dict["exp"].shape[0]}'
+        assert style_coef_dict['exp'].shape[0] == self.clip_len, f'Invalid style coef length: {coef_dict["exp"].shape[0]}'
+
         audio = torch.cat(audio, dim=0)
         assert audio.shape[0] == self.coef_total_len * self.audio_unit, f'Invalid audio length: {audio.shape[0]}'
         audio_mean = audio.mean()
@@ -113,13 +123,17 @@ class LmdbDataset(data.Dataset):
         if self.coef_stats is not None:
             coef_dict = {k: (coef_dict[k] - self.coef_stats[f'{k}_mean']) / (self.coef_stats[f'{k}_std'] + 1e-9)
                          for k in keys}
+            style_coef_dict = {k: (style_coef_dict[k] - self.coef_stats[f'{k}_mean']) / (self.coef_stats[f'{k}_std'] + 1e-9)
+                         for k in keys}
 
         # Extract two consecutive audio/coef clips
         audio_pair = [audio[:self.n_audio_samples].clone(), audio[-self.n_audio_samples:].clone()]
         coef_pair = [{k: coef_dict[k][:self.n_motions].clone() for k in keys},
                      {k: coef_dict[k][-self.n_motions:].clone() for k in keys}]
 
-        return audio_pair, coef_pair, (audio_mean, audio_std)
+        style_coef = {k: style_coef_dict[k].clone() for k in keys}
+
+        return audio_pair, coef_pair, style_coef, (audio_mean, audio_std)
 
 
 class LmdbDatasetForSE(data.Dataset):
