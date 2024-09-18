@@ -116,6 +116,8 @@ class DiffTalkingHead(nn.Module):
         self.cfg_mode = args.cfg_mode
         guiding_conditions = args.guiding_conditions.split(',') if args.guiding_conditions else []
         self.guiding_conditions = [cond for cond in guiding_conditions if cond in ['style', 'audio']]
+        
+        import pdb; pdb.set_trace()
         if 'style' in self.guiding_conditions:
             if not self.use_style:
                 raise ValueError('Cannot use style guiding without enabling it!')
@@ -131,7 +133,7 @@ class DiffTalkingHead(nn.Module):
         return next(self.parameters()).device
 
     def forward(self, motion_feat, audio_or_feat, shape_feat, style_feat=None,
-                prev_motion_feat=None, prev_audio_feat=None, time_step=None, indicator=None):
+                prev_motion_feat=None, prev_audio_feat=None, time_step=None, indicator=None, return_timesteps=False):
         """
         Args:
             motion_feat: (N, L, d_coef) motion coefficients or features
@@ -225,6 +227,9 @@ class DiffTalkingHead(nn.Module):
         # The reverse diffusion process
         motion_feat_target = self.denoising_net(motion_feat_noisy, audio_feat, person_feat,
                                                 prev_motion_feat, prev_audio_feat, time_step, indicator)
+
+        if return_timesteps:
+            return eps, motion_feat_target, motion_feat.detach(), audio_feat_saved.detach(), time_step
 
         return eps, motion_feat_target, motion_feat.detach(), audio_feat_saved.detach()
 
@@ -325,6 +330,7 @@ class DiffTalkingHead(nn.Module):
                 if cfg_mode == 'independent':
                     audio_feat_in.append(audio_feat_null)
                 elif cfg_mode == 'incremental':
+                    # audio_feat_in.append(audio_feat_null)
                     audio_feat_in.append(audio_feat)
                 else:
                     raise NotImplementedError(f'Unknown cfg_mode {cfg_mode}')

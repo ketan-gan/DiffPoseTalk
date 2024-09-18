@@ -21,6 +21,11 @@ from models.flame import FLAME, FLAMEConfig
 
 def train(args, model: DiffTalkingHead, style_enc: Optional[StyleEncoder], train_loader, val_loader, optimizer,
           save_dir, scheduler=None, writer=None, flame=None):
+
+    # creat bands for time steps to log losses for different time step ranges
+    time_step_bands_len = args.n_diff_steps // 10
+    bands = [(i * time_step_bands_len, (i + 1) * time_step_bands_len) for i in range(10)]
+
     device = model.device
     save_dir.mkdir(parents=True, exist_ok=True)
 
@@ -68,6 +73,8 @@ def train(args, model: DiffTalkingHead, style_enc: Optional[StyleEncoder], train
         loss_head_vel = torch.tensor(0, device=device)
         loss_head_smooth = torch.tensor(0, device=device)
         loss_head_trans = 0
+
+        band_wise_denoising_loss = {f'band_{i}' : 0. for i in range(len(bands))}
         for i in range(2):
             audio = audio_pair[i]  # (N, L_a)
             motion_coef = motion_coef_pair[i]  # (N, L, 50+x)
@@ -100,8 +107,8 @@ def train(args, model: DiffTalkingHead, style_enc: Optional[StyleEncoder], train
 
             # Inference
             if i == 0:
-                noise, target, prev_motion_coef, prev_audio_feat = model(
-                    motion_coef_in, audio_in, shape_coef, style, indicator=indicator)
+                noise, target, prev_motion_coef, prev_audio_feat, time_steps = model(
+                    motion_coef_in, audio_in, shape_coef, style, indicator=indicator, return_timesteps=True)
                 if end_idx is not None:  # was truncated, needs to use the complete feature
                     prev_motion_coef = motion_coef[:, -args.n_prev_motions:]
                     if args.use_context_audio_feat:
@@ -113,11 +120,11 @@ def train(args, model: DiffTalkingHead, style_enc: Optional[StyleEncoder], train
                     prev_motion_coef = prev_motion_coef[:, -args.n_prev_motions:]
                     prev_audio_feat = prev_audio_feat[:, -args.n_prev_motions:]
             else:
-                noise, target, _, _ = model(motion_coef_in, audio_in, shape_coef, style,
-                                            prev_motion_coef, prev_audio_feat, indicator=indicator)
+                noise, target, _, _, time_steps = model(motion_coef_in, audio_in, shape_coef, style,
+                                            prev_motion_coef, prev_audio_feat, indicator=indicator, return_timesteps=True)
 
             loss_n, loss_v, loss_c, loss_s, loss_ha, loss_hc, loss_hs, loss_ht = utils.compute_loss(
-                args, i == 0, shape_coef, motion_coef_in, noise, target, prev_motion_coef, coef_stats, flame, end_idx)
+                args, i == 0, shape_coef, motion_coef_in, noise, target, prev_motion_coef, coef_stats, flame, end_idx, time_steps, band_wise_denoising_loss, bands)
             loss_noise = loss_noise + loss_n / 2
             if args.target == 'sample' and args.l_vert > 0:
                 loss_vert = loss_vert + loss_v / 2
@@ -136,6 +143,10 @@ def train(args, model: DiffTalkingHead, style_enc: Optional[StyleEncoder], train
                 loss_head_trans = loss_head_trans + loss_ht
 
         loss_log['noise'].append(loss_noise.item())
+
+        for i in range(len(bands)):
+            loss_log[f'band_{i}'].append(band_wise_denoising_loss[f'band_{i}'])
+
         loss = loss_noise
         if args.target == 'sample' and args.l_vert > 0:
             loss_log['vert'].append(loss_vert.item())
@@ -188,6 +199,10 @@ def train(args, model: DiffTalkingHead, style_enc: Optional[StyleEncoder], train
             # write to tensorboard
             writer.add_scalar('train/loss', np.mean(loss_log['loss']), it)
             writer.add_scalar('train/noise', np.mean(loss_log['noise']), it)
+
+            for i in range(len(bands)):
+                writer.add_scalar(f'train/band_{i}', np.mean(loss_log[f'band_{i}']), it)
+
             if args.target == 'sample' and args.l_vert > 0:
                 writer.add_scalar('train/vert', np.mean(loss_log['vert']), it)
             if args.target == 'sample' and args.l_vel > 0:
@@ -446,7 +461,6 @@ def main(args, option_text=None):
                                        num_workers=args.num_workers, pin_memory=True)
         val_loader = data.DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False,
                                      num_workers=args.num_workers)
-
         # Logging
         exp_dir = Path('experiments/DPT') / f'{args.exp_name}-{datetime.now().strftime("%y%m%d_%H%M%S")}'
         log_dir = exp_dir / 'logs'

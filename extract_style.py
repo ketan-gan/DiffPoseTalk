@@ -22,7 +22,8 @@ class StyleExtractor:
             stats_file: Path = self.model_args.stats_file
             if stats_file is not None and not stats_file.is_absolute():
                 stats_file = self.model_args.data_root / stats_file
-            coef_stats = dict(np.load(stats_file))
+            #coef_stats = dict(np.load(stats_file))
+            coef_stats = dict(np.load('/mnt/data2/ketan/DiffPoseTalk/datasets/HDTF_TFHP/lmdb/stats_train.npz'))
             self.coef_stats = {k: torch.from_numpy(v).to(device) for k, v in coef_stats.items()}
         else:
             self.coef_stats = None
@@ -36,7 +37,13 @@ class StyleExtractor:
     def extract(self, coef_file, start_frame=0):
         end_frame = start_frame + self.n_motions
 
-        coef = dict(np.load(coef_file))
+        if isinstance(coef_file, Path):
+            coef = dict(np.load(coef_file))
+        elif isinstance(coef_file, dict):
+            coef = coef_file
+        else:
+            raise RuntimeError(f'coef file should either be a dict of nd arrays or the path to a npz file containing the same not {type(coef_file)}')
+        
         coef = {k: torch.from_numpy(coef[k][start_frame:end_frame]).float().to(self.device) for k in ['exp', 'pose']}
         if self.rot_repr == 'aa':
             coef_keys = ['exp', 'pose']
@@ -69,23 +76,25 @@ class StyleExtractor:
 def main(args):
     checkpoint_path, exp_name = get_model_path(args.exp_name, args.iter, 'SE')
     extractor = StyleExtractor(checkpoint_path, device=args.device)
-    output_dir = Path('demo/input/style') / exp_name / f'iter_{args.iter:07}'
+    # output_dir = Path('demo/input/style') / exp_name / f'iter_{args.iter:07}'
 
     style_feat = extractor.extract(args.coef, args.start_frame)
 
-    output_file: Path = args.output
-    if not output_file.is_absolute():
-        output_file = output_dir / output_file
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    np.save(output_file, style_feat)
+    # output_file: Path = args.output
+    # if not output_file.is_absolute():
+    #     output_file = output_dir / output_file
+    # output_file.parent.mkdir(parents=True, exist_ok=True)
+    # np.save(output_file, style_feat)
+    np.save(args.output, style_feat)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     # model
-    parser.add_argument('--exp_name', type=str, default='HDTF_TFHP', help='experiment name')
-    parser.add_argument('--iter', type=int, default=30000, help='number of iterations')
+    # parser.add_argument('--exp_name', type=str, default='HDTF_TFHP', help='experiment name')
+    parser.add_argument('--exp_name', type=str, default='L4H4-T0.1-BS32', help='experiment name')
+    parser.add_argument('--iter', type=int, default=34000, help='number of iterations')
     parser.add_argument('--device', type=str, default='cuda', help='device')
 
     # data

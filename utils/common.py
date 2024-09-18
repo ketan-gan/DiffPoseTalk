@@ -131,13 +131,27 @@ def coef_dict_to_vertices(coef_dict, flame, rot_repr='aa', ignore_global_rot=Fal
 
 
 def compute_loss(args, is_starting_sample, shape_coef, motion_coef_gt, noise, target, prev_motion_coef, coef_stats,
-                 flame, end_idx=None):
+                 flame, end_idx=None, time_steps=None, band_losses_dict=None, bands=None):
+    """
+    is_starting_sample: boolean
+    shape_coef: (B, n_motions)
+    motion_coef_gt: (B, n_motions, motion_dim)
+    noise: (B, n_motions, motion_dim)
+    target: (B, n_motions + n_prev_motions, motion_dim)
+    prev_motion_coef: (B, n_prev_motions, motion_dim)
+    time_steps: list of integers of length B
+    """
+
     if args.criterion.lower() == 'l2':
         criterion_func = F.mse_loss
     elif args.criterion.lower() == 'l1':
         criterion_func = F.l1_loss
     else:
         raise NotImplementedError(f'Criterion {args.criterion} not implemented.')
+
+    compute_time_step_band_loss = False
+    if band_losses_dict is not None and time_steps is not None and bands is not None:
+        compute_time_step_band_loss = True
 
     loss_vert = None
     loss_vel = None
@@ -158,6 +172,7 @@ def compute_loss(args, is_starting_sample, shape_coef, motion_coef_gt, noise, ta
             if args.no_constrain_prev:
                 target = torch.cat([prev_motion_coef, target[:, args.n_prev_motions:]], dim=1)
 
+        # shape (B, n_motions, motion_dim)
         loss_noise = criterion_func(motion_coef_gt, target, reduction='none')
 
         if args.l_vert > 0 or args.l_vel > 0:
@@ -178,15 +193,20 @@ def compute_loss(args, is_starting_sample, shape_coef, motion_coef_gt, noise, ta
             verts_pred = verts_pred.view(-1, seq_len, 5023, 3)
 
             if args.l_vert > 0:
+                # shape (B, n_motions, vert_dim, 3)
                 loss_vert = criterion_func(verts_gt, verts_pred, reduction='none')
 
             if args.l_vel > 0:
                 vel_gt = verts_gt[:, 1:] - verts_gt[:, :-1]
                 vel_pred = verts_pred[:, 1:] - verts_pred[:, :-1]
+
+                # shape (B, n_motions-1, vert_dim, 3)
                 loss_vel = criterion_func(vel_gt, vel_pred, reduction='none')
 
             if args.l_smooth > 0:
                 vel_pred = verts_pred[:, 1:] - verts_pred[:, :-1]
+
+                # shape (B, n_motions-2, vert_dim, 3)
                 loss_smooth = criterion_func(vel_pred[:, 1:], vel_pred[:, :-1], reduction='none')
 
         # head pose
@@ -241,6 +261,12 @@ def compute_loss(args, is_starting_sample, shape_coef, motion_coef_gt, noise, ta
         else:
             mask = torch.cat([torch.ones_like(mask[:, :args.n_prev_motions]), mask], dim=1)
 
+    if compute_time_step_band_loss:
+        for i, time_step in enumerate(time_steps):
+            for band_idx, band in enumerate(band_losses_dict):
+                low, high = bands[band_idx]
+                if low <= time_step <= high:
+                    band_losses_dict[f'band_{band_idx}'] += loss_noise[mask][i].mean().item() / 2
     loss_noise = loss_noise[mask].mean()
     if loss_vert is not None:
         loss_vert = loss_vert[mask].mean()

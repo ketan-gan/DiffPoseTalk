@@ -93,6 +93,12 @@ class Demo:
                         ignore_global_rot=False, cfg_mode=None, cfg_cond=None, cfg_scale=1.15):
         coef_dict = self.infer_coeffs(audio_path, coef_path, style_path, n_repetitions,
                                       cfg_mode, cfg_cond, cfg_scale, include_shape=True)
+        
+        exp = coef_dict['exp'][0, :, :].cpu().numpy()
+        jaw =  coef_dict['pose'][0, :, 3:].cpu().numpy()
+        data = {'exp': exp, 'jaw': jaw}
+        np.savez(self.args.params_save_path, **data)
+        
         assert self.load_flame, 'FLAME model is not loaded.'
         verts_list = utils.coef_dict_to_vertices(coef_dict, self.flame, self.rot_repr,
                                                  ignore_global_rot=ignore_global_rot).detach().cpu().numpy()
@@ -108,6 +114,8 @@ class Demo:
                 if self.save_coef:
                     self.save_coef_file({k: v[i] for k, v in coef_dict.items()}, out_path_i.with_suffix('.npz'))
                 self.render_to_video(verts, out_path_i, audio_path, tex_path)
+                
+        exit()
 
     @torch.no_grad()
     def infer_coeffs(self, audio, shape_coef, style_feat=None, n_repetitions=1,
@@ -207,7 +215,7 @@ class Demo:
                                                                         dynamic_threshold=self.dynamic_threshold)
             prev_motion_feat = motion_feat[:, -self.n_prev_motions:].clone()
             prev_audio_feat = prev_audio_feat[:, -self.n_prev_motions:]
-
+    
             motion_coef = motion_feat
             if i == n_subdivision - 1 and n_padding_frames > 0:
                 motion_coef = motion_coef[:, :-n_padding_frames]  # delete padded frames
@@ -256,8 +264,8 @@ class Demo:
             texture = cv2.cvtColor(cv2.imread(str(texture)), cv2.COLOR_BGR2RGB)
 
         out_path = Path(out_path)
-        if not out_path.is_absolute():
-            out_path = self.default_output_dir / out_path
+        # if not out_path.is_absolute():
+        #     out_path = self.default_output_dir / out_path
         out_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_video_file = tempfile.NamedTemporaryFile('w', suffix='.mp4', dir=out_path.parent)
         writer = cv2.VideoWriter(tmp_video_file.name, cv2.VideoWriter_fourcc(*'mp4v'), self.fps, self.size)
@@ -362,6 +370,7 @@ if __name__ == '__main__':
         parser.add_argument('--style', '-s', type=Path, help='path to the style feature')
         parser.add_argument('--tex', '-t', type=Path, help='path of the rendered video')
         parser.add_argument('--no_head', action='store_true', help='whether to include head pose')
+        parser.add_argument('--params_save_path', type=Path, help='path to save audio_params.npz')
         parser.add_argument('--output', '-o', type=Path, required=True, help='path of the rendered video')
         parser.add_argument('--n_repetitions', '-n', type=int, default=1, help='number of repetitions')
         parser.add_argument('--scale_audio', '-sa', type=float, default=1.15, help='guiding scale')

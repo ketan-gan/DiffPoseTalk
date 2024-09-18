@@ -44,8 +44,8 @@ class StyleEncoder(nn.Module):
         batch_size, seq_len, _ = motion_coef.shape
 
         # Motion
-        motion_feat = self.encoder['motion_proj'](motion_coef)
-        motion_feat = self.PE(motion_feat)
+        motion_feat = self.encoder['motion_proj'](motion_coef) # (B, 100, 128)
+        motion_feat = self.PE(motion_feat)                     # (B, 100, 128)
 
         feat = self.encoder['transformer'](motion_feat)  # (N, L, feat_dim)
 

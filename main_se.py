@@ -117,11 +117,10 @@ def main(args, option_text=None):
         val_dataset = LmdbDatasetForSE(data_root, args.data_root / 'val.txt', coef_stats_file, args.fps, args.n_motions,
                                        rot_repr=args.rot_repr, no_head_pose=args.no_head_pose)
         train_loader = data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
-                                       num_workers=args.num_workers, pin_memory=True, drop_last=True,
+                                       num_workers=args.num_workers, pin_memory=True, drop_last=False,
                                        persistent_workers=True)
         val_loader = data.DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True,
-                                     num_workers=args.num_workers, drop_last=True)
-
+                                     num_workers=args.num_workers, drop_last=False)
         # Logging
         exp_dir = Path('experiments/SE') / f'{args.exp_name}-{datetime.now().strftime("%y%m%d_%H%M%S")}'
         log_dir = exp_dir / 'logs'

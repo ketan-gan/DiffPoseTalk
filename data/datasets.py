@@ -144,7 +144,7 @@ class LmdbDatasetForSE(data.Dataset):
         self.crop_strategy = crop_strategy
         self.rot_representation = rot_repr
         self.no_head_pose = no_head_pose
-
+        
         # Read split file
         self.entries = defaultdict(list)
         with open(self.split_file, 'r') as f:

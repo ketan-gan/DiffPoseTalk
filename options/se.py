@@ -18,7 +18,7 @@ def add_model_options(parser: argparse.ArgumentParser):
 
 
 def add_data_options(parser: argparse.ArgumentParser):
-    parser.add_argument('--data_root', type=Path, default=Path('datasets/HDTF_TFHP/lmdb'),
+    parser.add_argument('--data_root', type=Path, default=Path('datasets/HDTF_TFHP-lmdb'),
                         help='dataset path')
     parser.add_argument('--stats_file', type=Path, default=Path('stats_train.npz'))
     parser.add_argument('--batch_size', type=int, default=32, help='batch size')
