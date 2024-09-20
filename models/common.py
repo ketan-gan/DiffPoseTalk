@@ -44,3 +44,15 @@ def pad_audio(audio, audio_unit=320, pad_threshold=80):
             audio = F.pad(audio, (1, 1), mode='replicate')
 
     return audio
+
+def self_attention_mask(seq_len, stddev=1.0):
+    # Create a distance matrix where the value is the distance from the diagonal
+    indices = torch.arange(seq_len)
+    distance_matrix = indices.unsqueeze(0) - indices.unsqueeze(1)
+    # Apply a Gaussian decay function: exp(-d^2 / (2 * sigma^2))
+    gaussian_mask = torch.exp(-0.5 * (distance_matrix ** 2) / (stddev ** 2))
+
+    # Convert values that are far from the diagonal to -inf for masking
+    attention_mask = torch.log(gaussian_mask)
+
+    return attention_mask

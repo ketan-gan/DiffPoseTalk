@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .common import PositionalEncoding, enc_dec_mask, pad_audio
+from .common import PositionalEncoding, enc_dec_mask, pad_audio, self_attention_mask
 
 
 class DiffusionSchedule(nn.Module):
@@ -439,6 +439,7 @@ class DenoisingNetwork(nn.Module):
         # sequence length
         self.n_prev_motions = args.n_prev_motions
         self.n_motions = args.n_motions
+        self.use_sa_mask = args.use_sa_mask
 
         # Temporal embedding for the diffusion time step
         self.TE = PositionalEncoding(self.feature_dim, max_len=args.n_diff_steps + 1)
@@ -472,6 +473,14 @@ class DenoisingNetwork(nn.Module):
                 self.register_buffer('alignment_mask', alignment_mask)
             else:
                 self.alignment_mask = None
+
+            if self.use_sa_mask:
+                 motion_len = self.n_prev_motions + self.n_motions
+                 sa_mask = self_attention_mask(motion_len, 1.)
+                 sa_mask = F.pad(sa_mask, (1, 0, 1, 0), value=0.)
+                 self.register_buffer('sa_mask', sa_mask)
+            else:
+                self.sa_mask = None
         else:
             raise ValueError(f'Unknown architecture: {self.architecture}')
 
@@ -532,7 +541,7 @@ class DenoisingNetwork(nn.Module):
         # Transformer
         if self.architecture == 'decoder':
             audio_feat_in = torch.cat([prev_audio_feat, audio_feat], dim=1)  # (N, L_p + L, d_audio)
-            feat_out = self.transformer(feats_in, audio_feat_in, memory_mask=self.alignment_mask)
+            feat_out = self.transformer(feats_in, audio_feat_in, memory_mask=self.alignment_mask, tgt_mask=self.sa_mask)
         else:
             raise ValueError(f'Unknown architecture: {self.architecture}')
 

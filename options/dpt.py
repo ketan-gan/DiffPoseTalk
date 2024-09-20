@@ -25,7 +25,8 @@ def add_model_options(parser: argparse.ArgumentParser):
     parser.add_argument('--n_heads', type=int, default=8, help='number of attention heads')
     parser.add_argument('--n_layers', type=int, default=8, help='number of encoder/decoder layers')
     parser.add_argument('--mlp_ratio', type=int, default=4, help='ratio of the hidden dimension of the MLP')
-
+    parser.add_argument('--use_sa_mask', action='store_true', help='whether to use self attention mask')
+    
     # sequence
     parser.add_argument('--n_motions', type=int, default=100, help='number of motions in a sequence')
     parser.add_argument('--n_prev_motions', type=int, default=10, help='number of pre-motions in a sequence')
