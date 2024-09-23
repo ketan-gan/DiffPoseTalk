@@ -117,7 +117,6 @@ class DiffTalkingHead(nn.Module):
         guiding_conditions = args.guiding_conditions.split(',') if args.guiding_conditions else []
         self.guiding_conditions = [cond for cond in guiding_conditions if cond in ['style', 'audio']]
         
-        import pdb; pdb.set_trace()
         if 'style' in self.guiding_conditions:
             if not self.use_style:
                 raise ValueError('Cannot use style guiding without enabling it!')

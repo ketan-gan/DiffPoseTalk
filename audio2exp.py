@@ -108,14 +108,14 @@ if __name__ == '__main__':
     
     out_dir = None
     if args.out_dir is None:   
-        out_dir = os.path.join(args.data_folder, f'diffposetalk_{args.dpt_iter}')
-        os.makedirs(out_dir, exist_ok=True)
+        out_dir = os.path.join(args.data_folder)
     else:
-        out_dir = os.path.join(args.out_dir, f'diffposetalk_{args.dpt_iter}')
+        out_dir = os.path.join(args.out_dir)
         os.makedirs(out_dir, exist_ok=True)
-        
-    vis_out_path = os.path.join(out_dir, 'diffposetalk_vis.mp4')
-    params_save_path = os.path.join(out_dir, 'audio_params.npz')
+    
+
+    vis_out_path = os.path.join(out_dir, f'{args.dpt_exp_name}_{args.dpt_iter}.mp4')
+    params_save_path = os.path.join(out_dir, f'audio_params.npz')
         
     cmd = f"python demo.py --exp_name {args.dpt_exp_name} --iter {args.dpt_iter} --params_save_path {params_save_path} -a {args.audio} -c {shape_save_path} -s {style_save_path} -o {vis_out_path} -n 1 -ss {args.scale_style} -sa {args.scale_audio}" 
         
