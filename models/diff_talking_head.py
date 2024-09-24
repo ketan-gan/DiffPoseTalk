@@ -254,7 +254,7 @@ class DiffTalkingHead(nn.Module):
     @torch.no_grad()
     def sample(self, audio_or_feat, shape_feat, motions_for_style=None, prev_motion_feat=None, prev_audio_feat=None,
                motion_at_T=None, indicator=None, cfg_mode=None, cfg_cond=None, cfg_scale=1.15, flexibility=0,
-               dynamic_threshold=None, ret_traj=False):
+               dynamic_threshold=None, ret_traj=False, ddim_sampling=True):
         # Check and convert inputs
         batch_size = audio_or_feat.shape[0]
 
@@ -397,9 +397,15 @@ class DiffTalkingHead(nn.Module):
                 c1 = (1 - alpha) / torch.sqrt(1 - alpha_bar)
                 motion_next = c0 * (motion_at_t - c1 * target_theta) + sigma * z
             elif self.target == 'sample':
-                c0 = (1 - alpha_bar_prev) * torch.sqrt(alpha) / (1 - alpha_bar)
-                c1 = (1 - alpha) * torch.sqrt(alpha_bar_prev) / (1 - alpha_bar)
-                motion_next = c0 * motion_at_t + c1 * target_theta + sigma * z
+                if ddim_sampling:
+                    # for x_(t-1) from x_(t)
+                    # sqrt(alpha_bar_(t-1)) * predicted_x_0 + sqrt(1 - alpha_bar_(t-1) - sigma_t^2) * (x_t - sqrt(alpha_bar_(t)) * predicted_x_0) / (sqrt(1 - alpha_bar_(t))) + sigma_t * noise
+                    motion_next = torch.sqrt(alpha_bar_prev) * target_theta + torch.sqrt(1 - alpha_bar_prev) * (motion_at_t - torch.sqrt(alpha_bar) * target_theta) / (torch.sqrt(1 - alpha_bar))
+                    
+                else:
+                    c0 = (1 - alpha_bar_prev) * torch.sqrt(alpha) / (1 - alpha_bar)
+                    c1 = (1 - alpha) * torch.sqrt(alpha_bar_prev) / (1 - alpha_bar)
+                    motion_next = c0 * motion_at_t + c1 * target_theta + sigma * z
             else:
                 raise ValueError('Unknown target type: {}'.format(self.target))
 
